@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "./interfaces/IERC4907.sol";
 import "hardhat/console.sol";
 
-contract ERC4907 is ERC721URIStorage, IERC4907 {
+contract ERC4907 is IERC4907,ERC721URIStorage {
     struct UserInfo {
         address user; // address of user role
         uint256 expires; // unix timestamp, user expires
@@ -26,7 +26,7 @@ contract ERC4907 is ERC721URIStorage, IERC4907 {
     function setUser(
         uint256 tokenId,
         address user,
-        uint64 expires
+        uint256 expires
     ) public virtual {
         require(
             _isApprovedOrOwner(msg.sender, tokenId),
@@ -64,7 +64,7 @@ contract ERC4907 is ERC721URIStorage, IERC4907 {
     /// @dev See {IERC165-supportsInterface}.
     function supportsInterface(
         bytes4 interfaceId
-    ) public view virtual override returns (bool) {
+    ) public view virtual override(ERC721URIStorage, IERC165) returns (bool) {
         return
             interfaceId == type(IERC4907).interfaceId ||
             super.supportsInterface(interfaceId);
