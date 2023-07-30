@@ -1,7 +1,9 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.8.14;
 
-interface IERC4907 {
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+
+interface IERC4907 is IERC721 {
 
     // Logged when the user of an NFT is changed or expires is changed
     /// @notice Emitted when the `user` of an NFT or the `expires` of the `user` is changed
