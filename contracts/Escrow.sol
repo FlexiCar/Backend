@@ -18,8 +18,8 @@ contract Escrow is Ownable {
         Status status;
     }
 
-    address private immutable s_nftAddress;
-    uint256 private immutable s_fee;
+    address public immutable s_nftAddress;
+    uint256 public immutable s_fee;
 
     mapping(uint256 => Listing) private s_listings;
     mapping(address => uint256) private s_balances;

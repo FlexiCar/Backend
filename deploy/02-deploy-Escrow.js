@@ -10,7 +10,6 @@ module.exports = async({deployments, getNamedAccounts})=>{
     const amount = ethers.parseEther("0.01");
     const address = RentalCar.target;
     
-    
     const Escrow = await deploy("Escrow",{
         from: deployer,
         args: [address, amount],

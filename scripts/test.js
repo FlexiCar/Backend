@@ -1,9 +1,6 @@
-const {ethers} = require('hardhat');
+const {ethers,deployments} = require('hardhat');
 async function main(){
-await deployments.fixture("RentalCar")
-const factory = await ethers.getContractFactory("RentalCar");
-const contract = await factory.deploy();
-console.log(contract.address);
+    // Write scripts later
 }
 main().then(()=>{
     process.exit(0);
