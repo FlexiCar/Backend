@@ -12,7 +12,7 @@ const { assert, expect } = require("chai");
         await deployments.fixture();
         RentalCar = await ethers.getContract("RentalCar", deployer);
       });
-
+      
       it("Will initialise the constructor", async () => {
         //Check the constructor variables
         const name = await RentalCar.name();
