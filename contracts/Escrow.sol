@@ -19,10 +19,14 @@ contract Escrow is Ownable {
     }
 
     address private immutable s_nftAddress;
+    uint256 private immutable s_fee;
 
     mapping(uint256 => Listing) private s_listings;
-    mapping(address => uint256) s_balances;
+    mapping(address => uint256) private s_balances;
     mapping(address => mapping(address => uint256)) s_rentals;
+    mapping(address => bool) public s_ownerStatus;
+    mapping(address => bool) public s_borrowerStatus;
+    mapping(uint256 => mapping(address => uint256)) s_fines;
 
     event ItemListed(
         address indexed seller,
@@ -47,6 +51,7 @@ contract Escrow is Ownable {
     );
 
     event carDelisted(uint256 indexed _tokenId, address indexed owner);
+    event finePaid(uint256 indexed _tokenId, address indexed borrower, uint256 fine);
 
     error NFT_ALERADY_LISTED();
     error NOT_THE_OWNER();
@@ -57,6 +62,11 @@ contract Escrow is Ownable {
     error ALERADY_RENTED_TO_SOMEONE();
     error LISTING_IS_IN_RENTED_STATE();
     error ZERO_PROCEEDS(); 
+    error CAR_NOT_RENTED_TO_CALLER();
+    error ALERADY_TURNED_IN();
+    error NOT_THE_BORROWER();
+    error NOT_RENTED_YET();
+    error NOT_TURNED_IN();
 
     modifier notListed(uint256 tokenId) {
         Listing memory listing = s_listings[tokenId];
@@ -93,8 +103,9 @@ contract Escrow is Ownable {
         _;
     }
 
-    constructor(address _nftAddress) {
+    constructor(address _nftAddress, uint256 _fee) {
         s_nftAddress = _nftAddress;
+        s_fee = _fee;
     }
 
     function listCar(
@@ -144,6 +155,8 @@ contract Escrow is Ownable {
         _nft.setUser(_tokenId, msg.sender, _expiryTime);
         s_rentals[listing.owner][msg.sender] = block.timestamp;
         listing.status = Status.RENTED;
+        s_ownerStatus[listing.owner] = false;
+        s_borrowerStatus[msg.sender] = false;
         emit rentedItem(_tokenId, msg.sender, _expiryTime);
         // update the balances for the nft owner
         s_balances[listing.owner] += msg.value;
@@ -194,4 +207,84 @@ contract Escrow is Ownable {
       require(success, "Else transaction failed");
     }
     // fine function
+
+    function turnInByOwner(uint256 _tokenId) public isOwner(_tokenId,msg.sender) {
+     IERC4907 _nft = IERC4907(s_nftAddress);
+      
+      if(s_ownerStatus[msg.sender] == true){
+        revert ALERADY_TURNED_IN();
+       }
+      address borrower = _nft.userOf(_tokenId);
+
+     if(borrower != address(0) && s_borrowerStatus[borrower] == true){
+        uint256 amount = ((block.timestamp - s_rentals[msg.sender][borrower]) * s_fee)/3600;
+        s_fines[_tokenId][borrower] = amount;
+     }
+     s_ownerStatus[msg.sender] = true;
+    }
+     
+     function turnInByBorrower(uint256 _tokenId) public {
+         IERC4907 _nft = IERC4907(s_nftAddress);
+
+         if(_nft.userOf(_tokenId)  != msg.sender){
+          revert NOT_THE_BORROWER();
+         }
+
+         if(s_borrowerStatus[msg.sender] == true){
+            revert ALERADY_TURNED_IN();
+         }
+
+         address owner = _nft.ownerOf(_tokenId);
+
+         if(s_ownerStatus[owner] == true){
+            uint256 amount = ((block.timestamp - s_rentals[owner][msg.sender]) * s_fee)/3600;
+            s_fines[_tokenId][msg.sender] = amount;
+         }
+         s_borrowerStatus[msg.sender] = true;
+
+     }    
+
+     function payFee(uint256 _tokenId) public payable{
+       Listing storage listing = s_listings[_tokenId];
+       IERC4907 _nft = IERC4907(s_nftAddress);
+       address borrower = _nft.userOf(_tokenId);
+
+       if(borrower != msg.sender){
+        revert NOT_THE_BORROWER();
+       }
+       delete  s_fines[_tokenId][borrower];
+       s_balances[_nft.ownerOf(_tokenId)] += msg.value;
+       listing.status = Status.AVAILABLE;
+       delete s_borrowerStatus [borrower];
+       delete s_ownerStatus[_nft.ownerOf(_tokenId)];
+       emit finePaid(_tokenId, msg.sender,msg.value);
+     }
+
+    function viewBalance() public view returns(uint256){
+        return s_balances[msg.sender];
+    }
+
+    function getFine(uint256 _tokenId) public view returns(uint256){
+        IERC4907 _nft = IERC4907(s_nftAddress);
+
+        if(!s_ownerStatus[_nft.ownerOf(_tokenId)] || !s_borrowerStatus[_nft.userOf(_tokenId)]){
+            revert NOT_TURNED_IN();
+        }
+
+        if(_nft.userOf(_tokenId) == address(0)){
+            revert NOT_RENTED_YET();
+        }
+
+        if(s_ownerStatus[_nft.ownerOf(_tokenId)] && s_borrowerStatus[_nft.userOf(_tokenId)]){
+             return s_fines[_tokenId][_nft.userOf(_tokenId)] ;
+    }
+        return 0;
+    }
+
+    function getListing(uint256 _tokenId) public view returns(Listing memory){
+        return s_listings[_tokenId] ;
+    }
+    
+
+
 }
