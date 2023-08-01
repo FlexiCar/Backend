@@ -13,12 +13,13 @@ contract RentalCar is ERC4907 ,Ownable{
     
   constructor(string memory _name, string memory _symbol) ERC4907 (_name, _symbol){}
   
-  function createNft(string memory _tokenURI) public {
+  function createNft(string memory _tokenURI) public returns(uint256 ){
     _tokenIds.increment();
     uint256 newItemId = _tokenIds.current();
     _safeMint(msg.sender, newItemId);
     _setTokenURI(newItemId, _tokenURI);
     emit CarTokenCreated(newItemId, msg.sender, _tokenURI);
+    return newItemId;
   }
 
   function getTotalSupply() public view returns (uint256){
