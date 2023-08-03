@@ -3,6 +3,7 @@ pragma solidity ^0.8.14;
 
 import "./interfaces/IERC4907.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import 'hardhat/console.sol';
 
 contract Escrow is Ownable {
     enum Status {
@@ -83,6 +84,7 @@ contract Escrow is Ownable {
     modifier isOwner(uint256 tokenId, address spender) {
         IERC4907 _nft = IERC4907(s_nftAddress);
         address owner = _nft.ownerOf(tokenId);
+        console.log(owner, spender);
         if (owner != spender) {
             revert NOT_THE_OWNER();
         }
@@ -101,7 +103,8 @@ contract Escrow is Ownable {
         /*TO check whether the expiry time by user in unix is less than or equal to block.timestamp + advancedTime */
         Listing memory listing = s_listings[_tokenId];
         uint256 extraTime = block.timestamp + listing.advanceTime;
-        if (extraTime > _expiry) {
+        console.log(block.timestamp,listing.advanceTime,extraTime, _expiry);
+        if (extraTime < _expiry + 10) {
             revert CANNOT_RENT_FOR_THAT_MUCH_DAYS();
         }
         _;
@@ -118,6 +121,7 @@ contract Escrow is Ownable {
         uint256 _maxDays,
         uint256 _advanceTime
     ) public notListed(_tokenId) isOwner(_tokenId, msg.sender) {
+        console.log(_advanceTime);
         if (_price == 0) {
             //No need for checking prices less than zero(uint used).
             revert PriceMustBeAboveZero();
