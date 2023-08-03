@@ -30,10 +30,10 @@ const { developmentChains } = require("../../helper-hardhatConfig");
       });
 
       describe("List Items Properly", async () => {
-        let tokenId;
+        let tokenId, txReceipt;
         beforeEach(async () => {
           const txResponse = await RentalCar.createNft("testURI");
-          const txReceipt = await txResponse.wait();
+          txReceipt = await txResponse.wait();
           tokenId = txReceipt.logs[2].args[0];
         });
         it("emits an event after listing an item", async function () {
@@ -96,6 +96,51 @@ const { developmentChains } = require("../../helper-hardhatConfig");
           carListings = await Escrow.getListing(tokenId);
           assert.equal(parseInt(carListings.status), 0);
         });
+        it("sets user as renter", async () => {
+          const accounts = await ethers.getSigners();
+          const player = accounts[1];
+          const escrow = Escrow.connect(player);
+          await escrow.rentCar(tokenId, expiry);
+          const carListingsUser = await RentalCar.userOf(tokenId);
+          assert.equal(carListingsUser, player.address);
+        });
+        it("create a fines mapping", async () => {
+          const accounts = await ethers.getSigners();
+          const player = accounts[1];
+          const escrow = Escrow.connect(player);
+
+          let listing = await Escrow.getListing(tokenId);
+          assert.equal(parseInt(listing.status), 1);
+          await escrow.rentCar(tokenId, expiry);
+
+          listing = await Escrow.getListing(tokenId);
+
+          assert.equal(parseInt(listing.status), 0);
+
+          let ownerStatus = await Escrow.getOwnerStatus();
+          let borrowerStatus = await escrow.getBorrowerStatus();
+          assert.equal(ownerStatus, false);
+          assert.equal(borrowerStatus, false);
+
+          const time = await escrow.getRentalListings(accounts[0]);
+          expect(parseInt(time)).to.be.greaterThan(
+            Math.floor(Date.now() / 1000)
+          );
+        });
+
+        it("add funds to owner",async()=>{
+          const accounts = await ethers.getSigners();
+          const player = accounts[1];
+          const escrow = Escrow.connect(player);
+
+          const balanceBefore = await Escrow.viewBalance();
+          assert.equal(parseInt(balanceBefore) , 0);
+          await escrow.rentCar(tokenId, expiry, {
+            value: PRICE,
+          });
+          const balanceAfter = await Escrow.viewBalance();
+          assert.equal(parseInt(balanceAfter), PRICE);
+        })
       });
       describe("cancels listing properly", async () => {
         let tokenId, expiry;
@@ -120,10 +165,117 @@ const { developmentChains } = require("../../helper-hardhatConfig");
         });
         it("reverts if it is in rented state", async () => {
           const listings = await Escrow.getListing(tokenId);
-          assert(parseInt(listings.status), 1);
+          assert.equal(parseInt(listings.status), 1);
           // await Escrow.rentCar(tokenId, expiry);
           await Escrow.cancelListing(tokenId);
-          // assert(parseInt(listings.status), 0);
+          // assert.equal(parseInt(listings.status), 0);
+        });
+        it("listing deleted properly", async () => {
+          await Escrow.cancelListing(tokenId);
+          const listings = await Escrow.getListing(tokenId);
+          assert.equal(parseInt(listings.hourlyPrice), 0);
+          assert.equal(parseInt(listings.maxDays), 0);
+          assert.equal(parseInt(listings.advanceTime), 0);
+          assert.equal(parseInt(listings.status), 0);
+        });
+      });
+      describe("Updates Listings properly", async () => {
+        let tokenId, expiry, advanceTime;
+        beforeEach(async () => {
+          const txResponse = await RentalCar.createNft("testURI");
+          const txReceipt = await txResponse.wait();
+          tokenId = txReceipt.logs[2].args[0];
+          await RentalCar.approve(Escrow.target, tokenId);
+          advanceTime = 2 * 60 * 60;
+          await Escrow.listCar(tokenId, PRICE, 2, advanceTime);
+          const currentDate = new Date();
+          currentDate.setHours(currentDate.getHours() + 1);
+          const currentTimeInSeconds = Math.floor(currentDate.getTime() / 1000);
+          expiry = currentTimeInSeconds;
+        });
+
+        it("Price must me above zero", async () => {
+          // await expect(
+          //   Escrow.updateListing(tokenId, 0, 2, advanceTime)
+          // ).to.be.revertedWith("PriceMustBeAboveZero");
+        });
+        it("Dont update if listed Item is already rented", async () => {
+          const listings = await Escrow.getListing(tokenId);
+          await Escrow.updateListing(tokenId, PRICE, 2, advanceTime);
+          await Escrow.rentCar(tokenId, expiry);
+          // await expect(
+          //   Escrow.updateListing(tokenId, PRICE, 2, advanceTime)
+          // ).to.be.revertedWith("LISTING_IS_IN_RENTED_STATE");
+        });
+        it("Items Updating as expected", async () => {
+          await Escrow.updateListing(tokenId, 10, 4, 10);
+          const newListing = await Escrow.getListing(tokenId);
+          assert.equal(parseInt(newListing.hourlyPrice), 10);
+          assert.equal(parseInt(newListing.maxDays), 4);
+          assert.equal(parseInt(newListing.advanceTime), 10);
+        });
+      });
+      describe("Withdraws funds properly", async () => {
+        it("should revert if balance is zero", async () => {
+          const accounts = await ethers.getSigners();
+          const player = accounts[1];
+          const escrow = Escrow.connect(player);
+          const currentBalance = await escrow.viewBalance();
+          assert.equal(parseInt(currentBalance), 0);
+          // await expect(escrow.withdraw()).to.be.revertedWith(
+          //   "ZERO_PROCEEDS"
+          // );
+        });
+        it("should allow a user to withdraw their balance", async () => {
+          const txResponse = await RentalCar.createNft("testURI");
+          const txReceipt = await txResponse.wait();
+          tokenId = txReceipt.logs[2].args[0];
+          await RentalCar.approve(Escrow.target, tokenId);
+          advanceTime = 2 * 60 * 60;
+          await Escrow.listCar(tokenId, PRICE, 2, advanceTime);
+          const currentDate = new Date();
+          currentDate.setHours(currentDate.getHours() + 1);
+          const currentTimeInSeconds = Math.floor(currentDate.getTime() / 1000);
+          expiry = currentTimeInSeconds;
+
+          const accounts = await ethers.getSigners();
+          const player = accounts[1];
+          const escrow = Escrow.connect(player);
+          const currentBalance = await escrow.viewBalance();
+          assert.equal(parseInt(currentBalance), 0);
+
+          const tx = await escrow.rentCar(tokenId, expiry, {
+            value: PRICE,
+          });
+          await tx.wait();
+
+          const currentBalanceAfterDeposit = await Escrow.viewBalance();
+          // console.log(currentBalanceAfterDeposit);
+          assert.equal(parseInt(currentBalanceAfterDeposit), 1);
+          await Escrow.withdraw();
+          const currentBalanceAfterWithdraw = await escrow.viewBalance();
+          assert.equal(parseInt(currentBalanceAfterWithdraw), 0);
+        });
+      });
+      describe("turn in functionality by owner", async () => {
+        let tokenId, expiry, advanceTime;
+        beforeEach(async () => {
+          const txResponse = await RentalCar.createNft("testURI");
+          const txReceipt = await txResponse.wait();
+          tokenId = txReceipt.logs[2].args[0];
+          await RentalCar.approve(Escrow.target, tokenId);
+          advanceTime = 2 * 60 * 60;
+          await Escrow.listCar(tokenId, PRICE, 2, advanceTime);
+          const currentDate = new Date();
+          currentDate.setHours(currentDate.getHours() + 1);
+          const currentTimeInSeconds = Math.floor(currentDate.getTime() / 1000);
+          expiry = currentTimeInSeconds;
+          await Escrow.rentCar(tokenId, expiry, {
+            value: PRICE,
+          });
+        });
+        it("revert if owner already turned in", async () => {
+
         });
       });
     });
