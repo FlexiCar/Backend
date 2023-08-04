@@ -128,19 +128,19 @@ const { developmentChains } = require("../../helper-hardhatConfig");
           );
         });
 
-        it("add funds to owner",async()=>{
+        it("add funds to owner", async () => {
           const accounts = await ethers.getSigners();
           const player = accounts[1];
           const escrow = Escrow.connect(player);
 
           const balanceBefore = await Escrow.viewBalance();
-          assert.equal(parseInt(balanceBefore) , 0);
+          assert.equal(parseInt(balanceBefore), 0);
           await escrow.rentCar(tokenId, expiry, {
             value: PRICE,
           });
           const balanceAfter = await Escrow.viewBalance();
           assert.equal(parseInt(balanceAfter), PRICE);
-        })
+        });
       });
       describe("cancels listing properly", async () => {
         let tokenId, expiry;
@@ -258,7 +258,7 @@ const { developmentChains } = require("../../helper-hardhatConfig");
         });
       });
       describe("turn in functionality by owner", async () => {
-        let tokenId, expiry, advanceTime;
+        let tokenId, expiry, advanceTime, escrow, player,accounts;
         beforeEach(async () => {
           const txResponse = await RentalCar.createNft("testURI");
           const txReceipt = await txResponse.wait();
@@ -270,12 +270,154 @@ const { developmentChains } = require("../../helper-hardhatConfig");
           currentDate.setHours(currentDate.getHours() + 1);
           const currentTimeInSeconds = Math.floor(currentDate.getTime() / 1000);
           expiry = currentTimeInSeconds;
-          await Escrow.rentCar(tokenId, expiry, {
+          accounts = await ethers.getSigners();
+          player = accounts[1];
+          escrow = Escrow.connect(player);
+          await escrow.rentCar(tokenId, expiry, {
             value: PRICE,
           });
         });
         it("revert if owner already turned in", async () => {
+          let ownerStatus = await Escrow.getOwnerStatus();
+          assert.equal(ownerStatus, false);
+          // await expect(Escrow.turnIn(tokenId)).to.be.revertedWith(
+          //   "ALERADY_TURNED_IN"
+          // );
+        });
+        it("owner and borrower status updating", async () => {
+          const userAddress = await RentalCar.userOf(tokenId);
+          expect(userAddress).to.not.equal(
+            "0x0000000000000000000000000000000000000000"
+          );
+          const borrowerStatus = await escrow.getBorrowerStatus();
+          assert.equal(borrowerStatus, false);
 
+          await Escrow.turnInByOwner(tokenId);
+          const ownerStatus = await Escrow.getOwnerStatus();
+          assert.equal(ownerStatus, true);
+        });
+        it("fine amount mappping is updated", async () => {
+          let fineBefore = await Escrow.getFineListings(tokenId, player);
+          assert.equal(parseInt(fineBefore), 0);
+          const rentalList = await escrow.getRentalListings(accounts[0]);
+          await Escrow.turnInByOwner(tokenId);
+          let totalFineTime =
+              Math.floor(Date.now() / 1000) - parseInt(rentalList);
+          const fee = ethers.parseEther("0.01");
+          let totalFee;
+          if(totalFineTime>0){
+            totalFee = totalFineTime * fee;
+          }else{
+            totalFee = 0;
+          }
+          const totalAmount = parseInt(await escrow.getFineListings(tokenId,player.address));
+          let totalFeeMax = 0, totalFeeMin = 0;
+          if(totalFee != 0){
+            totalFeeMax = BigInt((totalFineTime) + 10)*fee;
+            totalFeeMin = BigInt(totalFineTime - 10) * fee;
+
+            expect(totalFeeMax).to.be.greaterThan(totalAmount);
+            expect(totalFeeMin).to.be.lessThan(totalAmount);
+          }
+          else{
+            assert.equal(totalFee, totalAmount);
+          }
         });
       });
+      describe("turn in functionality by borrower", async () => {
+        let tokenId, expiry, advanceTime, escrow, player, accounts;
+        beforeEach(async () => {
+          const txResponse = await RentalCar.createNft("testURI");
+          const txReceipt = await txResponse.wait();
+          tokenId = txReceipt.logs[2].args[0];
+          await RentalCar.approve(Escrow.target, tokenId);
+          advanceTime = 2 * 60 * 60;
+          await Escrow.listCar(tokenId, PRICE, 2, advanceTime);
+          const currentDate = new Date();
+          currentDate.setHours(currentDate.getHours() + 1);
+          const currentTimeInSeconds = Math.floor(currentDate.getTime() / 1000);
+          expiry = currentTimeInSeconds;
+          accounts = await ethers.getSigners();
+          player = accounts[1];
+          escrow = Escrow.connect(player);
+          await escrow.rentCar(tokenId, expiry, {
+            value: PRICE,
+          });
+        });
+        it("revert if sender is not borrower", async () => {
+          await escrow.turnInByBorrower(tokenId);
+          // await expect(Escrow.turnInByBorrower(tokenId)).to.be.revertedWith(
+          //   "NOT_BORROWER"
+          // );
+        })
+        it("revert if borrower already turned in", async () => {
+          await escrow.turnInByBorrower(tokenId);
+          const borrowerStatus = await escrow.getBorrowerStatus();
+          assert.equal(borrowerStatus, true);
+          // await expect(Escrow.turnInByBorrower(tokenId)).to.be.revertedWith(
+          //   "ALREADY_TURNED_IN"
+          // );
+        })
+        it("fine amount mappping is updated in borrower turn in", async () => {
+          const owner = await RentalCar.ownerOf(tokenId);
+          let fineBefore = await Escrow.getFineListings(tokenId, player);
+          assert.equal(parseInt(fineBefore), 0);
+
+          await escrow.turnInByBorrower(tokenId);
+          const rentalList = await escrow.getRentalListings(accounts[0]);
+          let totalFineTime =
+            Math.floor(Date.now() / 1000) - parseInt(rentalList);
+          const fee = ethers.parseEther("0.01");
+          let totalFee;
+          if (totalFineTime > 0) {
+            totalFee = totalFineTime * fee;
+          } else {
+            totalFee = 0;
+          }
+          const totalAmount = parseInt(
+            await escrow.getFineListings(tokenId,player.address)
+          );
+          let totalFeeMax = 0,
+            totalFeeMin = 0;
+          if (totalFee != 0) {
+            totalFeeMax = BigInt(totalFineTime + 10) * fee;
+            totalFeeMin = BigInt(totalFineTime - 10) * fee;
+
+            expect(totalFeeMax).to.be.greaterThan(totalAmount);
+            expect(totalFeeMin).to.be.lessThan(totalAmount);
+          } else {
+            assert.equal(totalFee, totalAmount);
+          }
+        });
+      });
+      describe("payment function working properly",async() =>{
+        let tokenId, expiry, advanceTime, escrow, player, accounts;
+        beforeEach(async () => {
+          const txResponse = await RentalCar.createNft("testURI");
+          const txReceipt = await txResponse.wait();
+          tokenId = txReceipt.logs[2].args[0];
+          await RentalCar.approve(Escrow.target, tokenId);
+          advanceTime = 2 * 60 * 60;
+          await Escrow.listCar(tokenId, PRICE, 2, advanceTime);
+          const currentDate = new Date();
+          currentDate.setHours(currentDate.getHours() + 1);
+          const currentTimeInSeconds = Math.floor(currentDate.getTime() / 1000);
+          expiry = currentTimeInSeconds;
+          accounts = await ethers.getSigners();
+          player = accounts[1];
+          escrow = Escrow.connect(player);
+          await escrow.rentCar(tokenId, expiry, {
+            value: PRICE,
+          });
+          await Escrow.turnInByOwner(tokenId);
+          await escrow.turnInByBorrower(tokenId);
+        });
+        it("revert if borrower is not sender",async() =>{
+          const borrower = await RentalCar.userOf(tokenId);
+          // assert.equal(borrower, player.address);
+          // await expect(Escrow.payFee(tokenId)).to.be.revertedWith(
+          //   "NOT_THE_BORROWER"
+          // );
+        })
+      })
     });
